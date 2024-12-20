@@ -22,7 +22,8 @@ function checkCollisions(obj, v0, pos)
 	const b = obj.boundingBoxSettings.b;
 	const dir = v0.clone().normalize();
 	const obstacles = [];
-	obstacles.push(mp.staticFloorsMesh);
+	if (!!mp.staticFloorsMesh)
+		obstacles.push(mp.staticFloorsMesh);
 	for (var i = 0; i < mp.staticAutotilesList.length; i++)
 		if (!!mp.staticAutotilesList[i] && !!mp.staticAutotilesList[i][0].mesh)
 			obstacles.push(mp.staticAutotilesList[i][0].mesh);
@@ -53,6 +54,9 @@ function checkCollisions(obj, v0, pos)
 
 		// an approximation to avoid unnecessary calculations
 		const xz = Math.sqrt(Math.pow(b[i][3], 2) + Math.pow(b[i][5], 2)) / 2;
+
+		if (!obstacles)
+			continue;
 
 		// branch into horizontal and vertical movement
 		if (v0.y != 0)
