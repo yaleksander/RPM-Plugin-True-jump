@@ -3,6 +3,8 @@ import { THREE } from "../../System/Globals.js";
 
 const pluginName = "True jump";
 
+const gravity = RPM.Manager.Plugins.getParameter(pluginName, "Gravity") / 1000;
+
 const up = new THREE.Vector3(0, 1, 0);
 const down = new THREE.Vector3(0, -1, 0);
 const timeout = 10;
@@ -73,7 +75,7 @@ function checkCollisions(obj, v0, pos)
 			// horizontal check. start at base, middle and top of the object's collision box, horizontally centered
 			raycaster.far = v0.length() + xz + 1;
 			const v = origin.clone();
-			v.y -= b[i][4];
+			v.y -= b[i][4] - 1;
 			for (var j = 0; j < 3; j++)
 			{
 				v.y += b[i][4] / 2;
@@ -94,7 +96,7 @@ function moveHorizontal(obj, v0, time)
 {
 	const pos = obj.position.clone().add(v0);
 	const orig = obj.position.clone();
-    const m = RPM.Scene.Map.current;
+	const m = RPM.Scene.Map.current;
 	const mp = m.mapProperties;
 	const s = RPM.Datas.Systems.SQUARE_SIZE;
 
@@ -148,47 +150,60 @@ function moveHorizontal(obj, v0, time)
 	obj.updateBBPosition(obj.position);
 }
 
-function moveVertical(obj, prop, flag, vy, a)
+function moveVertical(obj, vy)
 {
+	if (obj.jumpPlugin_fixedVelocityEnabled && !obj.jumpPlugin_jumpFlag)
+	{
+		vy = obj.jumpPlugin_fixedVelocity;
+	}
+	else if (obj.jumpPlugin_jumpFlag && vy <= 0)
+	{
+		obj.jumpPlugin_jumpFlag = false;
+		obj.jumpPlugin_fallFlag = true;
+	}
 	const v0 = new THREE.Vector3(0, vy, 0);
 	const fpos = obj.position.clone().add(v0);
-	if (fpos.y < 0)
-		prop[flag] = false;
-	else if (!checkCollisions(obj, v0, fpos))
+	if (!checkCollisions(obj, v0, fpos))
 	{
 		obj.position = fpos;
-		setTimeout(moveVertical, timeout, obj, prop, flag, vy - a, a);
+		setTimeout(moveVertical, timeout, obj, vy - gravity * RPM.Datas.Systems.SQUARE_SIZE);
 	}
 	else if (vy > 0)
-		setTimeout(moveVertical, timeout, obj, prop, flag, -a, a);
+		setTimeout(moveVertical, timeout, obj, -gravity * RPM.Datas.Systems.SQUARE_SIZE);
 	else
-		prop[flag] = false;
+	{
+		if (isAirborne(obj))
+			setTimeout(moveVertical, timeout, obj, 0);
+		else
+			obj.jumpPlugin_fallFlag = false;
+	}
 	obj.updateBBPosition(obj.position);
 }
 
-RPM.Manager.Plugins.registerCommand(pluginName, "Jump", (id, propFlag, x, z, peak, time, iniSpd, camera) =>
+function isAirborne(obj)
+{
+	return !checkCollisions(obj, down, obj.position.clone().add(down));
+}
+
+RPM.Manager.Plugins.registerCommand(pluginName, "Jump", (id, peak) =>
 {
 	RPM.Core.MapObject.search(id, (result) =>
 	{
-		time *= 1000 / timeout;
-		const prop = RPM.Core.ReactionInterpreter.currentObject.properties;
-		prop[propFlag] = true;
-		const v0 = new THREE.Vector3(x, 0, z).normalize().applyAxisAngle(down, (camera ? RPM.Scene.Map.current.camera.horizontalAngle * Math.PI / 180 : -Math.PI / 2) + Math.PI / 2);
-		v0.multiplyScalar(iniSpd * result.object.speed.getValue() * RPM.Core.MapObject.SPEED_NORMAL * RPM.Datas.Systems.SQUARE_SIZE * RPM.Manager.Stack.averageElapsedTime);
-		setTimeout(moveVertical, 1, result.object, prop, propFlag, peak / time, peak / (time * time));
-		setTimeout(moveHorizontal, timeout, result.object, v0, RPM.Core.Game.current.playTime.time + time * timeout);
+		result.object.jumpPlugin_jumpFlag = true;
+		result.object.jumpPlugin_fallFlag = false;
+		// consider v² = v0² + 2aΔs. we want to find v0. a = -gravity, Δs = peak, v = 0. then: v0 = √(2 * peak * gravity)
+		setTimeout(moveVertical, 1, result.object, Math.sqrt(2 * peak * gravity * Math.pow(RPM.Datas.Systems.SQUARE_SIZE, 2)));
 	}, RPM.Core.ReactionInterpreter.currentObject);
 });
 
-RPM.Manager.Plugins.registerCommand(pluginName, "Fall", (id, propFlag, gravity) =>
+RPM.Manager.Plugins.registerCommand(pluginName, "Fall", (id) =>
 {
 	RPM.Core.MapObject.search(id, (result) =>
 	{
-		const prop = RPM.Core.ReactionInterpreter.currentObject.properties;
-		if (!checkCollisions(result.object, down, result.object.position.clone().add(down)))
+		if (!checkCollisions(result.object, down, result.object.position.clone().add(down)) && !result.object.jumpPlugin_jumpFlag && !result.object.jumpPlugin_fallFlag)
 		{
-			prop[propFlag] = true;
-			setTimeout(moveVertical, 1, result.object, prop, propFlag, 0, gravity);
+			result.object.jumpPlugin_fallFlag = true;
+			setTimeout(moveVertical, 1, result.object, 0);
 		}
 	}, RPM.Core.ReactionInterpreter.currentObject);
 });
@@ -207,6 +222,15 @@ RPM.Manager.Plugins.registerCommand(pluginName, "Check ground", (id, prop) =>
 {
 	RPM.Core.MapObject.search(id, (result) =>
 	{
-		RPM.Core.ReactionInterpreter.currentObject.properties[prop] = checkCollisions(result.object, down, result.object.position.clone().add(down));
+		RPM.Core.ReactionInterpreter.currentObject.properties[prop] = !isAirborne(result.object);
 	}, RPM.Core.ReactionInterpreter.currentObject);
+});
+
+RPM.Manager.Plugins.registerCommand(pluginName, "Set fixed velocity", (id, enable, value) =>
+{
+	RPM.Core.MapObject.search(id, (result) =>
+	{
+		result.object.jumpPlugin_fixedVelocity = value;
+		result.object.jumpPlugin_fixedVelocityEnabled = enable;
+	}, RPM.Core.ReactionInterpreter.currentObject);	
 });
