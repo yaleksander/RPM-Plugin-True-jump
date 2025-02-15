@@ -50,6 +50,8 @@ function checkCollisions(obj, v0, pos)
 			obj.position.sub(v0);
 			return true;
 		}
+		if (RPM.Manager.Collisions.checkObjects3D(mp, p, pos, [], obj))
+			return true;
 
 		// raycast based collision chekcs. add 1 to y to avoid a bug where the character "sinks" in the ground
 		const origin = obj.position.clone().add(new THREE.Vector3(b[i][0], b[i][1] + 1, b[i][2]));
@@ -94,6 +96,7 @@ function checkCollisions(obj, v0, pos)
 
 function moveHorizontal(obj, v0, time)
 {
+	obj.updateTerrain();
 	const pos = obj.position.clone().add(v0);
 	const orig = obj.position.clone();
 	const m = RPM.Scene.Map.current;
